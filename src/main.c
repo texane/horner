@@ -67,6 +67,8 @@ typedef struct thief_work
  */
 
 static void thief_entrypoint(void*, kaapi_thread_t*, kaapi_stealcontext_t*);
+static double horner_seq_hilo
+(double, const double*, unsigned long, double, unsigned long, unsigned long);
 
 
 /* reduction
@@ -74,14 +76,10 @@ static void thief_entrypoint(void*, kaapi_thread_t*, kaapi_stealcontext_t*);
 
 static void common_reducer(master_work_t* vw, thief_work_t* tw)
 {
-  printf("reducer\n");
+  /* how much has been processed by the thief */
+  const unsigned long n = tw->i - (unsigned long)vw->wq.end;
 
-#if 0 /* todo */
-  kaapi_workqueue_index_t pos = kaapi_workqueue_range_begin(&vw->wq);
-  for (; pos < beg; ++pos)
-    vw->oarray[pos] += vw->prefix;
-  vw->prefix += tw->prefix;
-#endif
+  vw->res = tw->res + vw->res * pow(vw->x, (double)n);
 
   /* continue the thief work */
   kaapi_workqueue_set(&vw->wq, tw->i, tw->j);
@@ -209,8 +207,24 @@ static void thief_entrypoint
   /* resulting work */
   thief_work_t* const res_work = kaapi_adaptive_result_data(sc);
 
+#if 1 /* todo_preemptpoint */
+
+  const unsigned long hi = to_degree(work->i, work->n);
+  const unsigned long lo = to_degree(work->j, work->n);
+
+  work->res = horner_seq_hilo
+    (work->x, work->a, work->n, work->res, hi, lo);
+
+  /* update work indices */
+  work->i = work->j;
+
+#else
+
   while (work->i != work->j)
   {
+    const unsigned long hi = to_degree(i, n);
+    const unsigned long lo = to_degree(i, n);
+
     /* todo_horner */
 
     /* update prior reducing */
@@ -221,6 +235,8 @@ static void thief_entrypoint
     if (is_preempted) return ;
   }
 
+#endif
+
   /* we are finished, update results. */
   memcpy(res_work, work, sizeof(thief_work_t));
 }
@@ -228,9 +244,6 @@ static void thief_entrypoint
 
 /* parallel horner
  */
-
-static double horner_seq_hilo
-(double, const double*, unsigned long, double, unsigned long, unsigned long);
 
 static double horner_par
 (double x, const double* a, unsigned long n)
@@ -259,12 +272,15 @@ static double horner_par
   /* enter adaptive section */
   sc = kaapi_task_begin_adaptive(thread, sc_flags, splitter, &work);
 
+#if 0 /* define to force concurrency */
+  usleep(100000);
+#endif
+
  continue_work:
   while (extract_seq(&work, &i, &j) != -1)
   {
     const unsigned long hi = to_degree(i, n);
     const unsigned long lo = to_degree(j, n);
-    printf("[ %lu - %lu [ -> [ %lu - %lu [\n", i, j, hi, lo);
     work.res = horner_seq_hilo(x, a, n, work.res, hi, lo);
   }
 
@@ -328,8 +344,8 @@ static double naive_seq
 
 int main(int ac, char** av)
 {
-  /* 5x^4 + 4x^3 + 3x^2 + 2x + 1 */
-  static double a[] = { 5., 4., 3., 2., 1. };
+  /* 6x^5 5x^4 + 4x^3 + 3x^2 + 2x + 1 */
+  static double a[] = { 6., 5., 4., 3., 2., 1. };
   static const unsigned long n = sizeof(a) / sizeof(double) - 1;
   static const double x = 2.;
 
