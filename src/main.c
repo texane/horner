@@ -1,6 +1,8 @@
 #include <stdio.h>
-#include <math.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 
 /* degree to index translation routines
@@ -152,6 +154,8 @@ static int splitter
    */
   if (kaapi_workqueue_steal(&vw->wq, &i, &j, nreq * unit_size))
     goto redo_steal;
+
+  printf("nreq: %u\n", nreq);
 
   for (; nreq; --nreq, ++req, ++nrep, j -= unit_size)
   {
@@ -339,14 +343,43 @@ static double naive_seq
 }
 
 
+#define CONFIG_BIG_POLYNOM 1
+
+#if CONFIG_BIG_POLYNOM
+
+/* generate big polynoms
+ */
+
+static double* make_rand_polynom(unsigned long n)
+{
+  /* n the degree */
+  double* const a = malloc((n + 1) * sizeof(double));
+
+  size_t i;
+  for (i = 0; i <= n; ++i)
+    a[i] = (rand() % 10) / 1000.f;
+  
+  return a;
+}
+
+#endif /* CONFIG_BIG_POLYNOM */
+
+
 /* main
  */
 
 int main(int ac, char** av)
 {
+#if CONFIG_BIG_POLYNOM
+  static const unsigned long n = 32;
+  double* const a = make_rand_polynom(n);
+#else /* random polynom */
   /* 6x^5 5x^4 + 4x^3 + 3x^2 + 2x + 1 */
   static double a[] = { 6., 5., 4., 3., 2., 1. };
-  static const unsigned long n = sizeof(a) / sizeof(double) - 1;
+  static const unsigned long n = sizeof(a) / sizeof(double);
+#endif
+
+  /* the point to evaluate */
   static const double x = 2.;
 
 #if CONFIG_USE_XKAAPI
@@ -360,6 +393,10 @@ int main(int ac, char** av)
 
 #if CONFIG_USE_XKAAPI
   kaapi_finalize();
+#endif
+
+#if CONFIG_BIG_POLYNOM
+  free(a);
 #endif
 
   return 0;
