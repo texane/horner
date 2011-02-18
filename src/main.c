@@ -253,8 +253,8 @@ static double horner_par
   work.x = x;
   work.a = a;
   work.n = n;
-  work.res = 0.;
-  kaapi_workqueue_init(&work.wq, 0, n + 1);
+  work.res = a[to_index(n, n)];
+  kaapi_workqueue_init(&work.wq, 0, n);
 
   /* enter adaptive section */
   sc = kaapi_task_begin_adaptive(thread, sc_flags, splitter, &work);
@@ -262,10 +262,9 @@ static double horner_par
  continue_work:
   while (extract_seq(&work, &i, &j) != -1)
   {
-    /* index to degrees */
     const unsigned long hi = to_degree(i, n);
     const unsigned long lo = to_degree(j, n);
-    printf("%lu - %lu\n", hi, lo);
+    printf("[ %lu - %lu [ -> [ %lu - %lu [\n", i, j, hi, lo);
     work.res = horner_seq_hilo(x, a, n, work.res, hi, lo);
   }
 
@@ -297,7 +296,7 @@ static double horner_seq_hilo
   /* the degree in [hi, lo[ being evaluated */
   unsigned long i;
 
-  for (i = hi + 1; i > lo; --i)
+  for (i = hi; i > lo; --i)
     res = res * x + a[to_index(i - 1, n)];
   return res;
 }
@@ -305,7 +304,8 @@ static double horner_seq_hilo
 static inline double horner_seq
 (double x, const double* a, unsigned long n)
 {
-  return horner_seq_hilo(x, a, n, 0., n, 0);
+  double res = a[to_index(n, n)];
+  return horner_seq_hilo(x, a, n, res, n, 0);
 }
 
 
@@ -328,8 +328,8 @@ static double naive_seq
 
 int main(int ac, char** av)
 {
-  /* 4x^3 + 3x^2 + 2x + 1 */
-  static double a[] = { 4., 3., 2., 1. };
+  /* 5x^4 + 4x^3 + 3x^2 + 2x + 1 */
+  static double a[] = { 5., 4., 3., 2., 1. };
   static const unsigned long n = sizeof(a) / sizeof(double) - 1;
   static const double x = 2.;
 
