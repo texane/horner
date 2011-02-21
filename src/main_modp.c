@@ -154,7 +154,6 @@ static void common_reducer(master_work_t* vw, thief_work_t* tw)
   kaapi_workqueue_set(&vw->wq, tw->i, tw->j);
 }
 
-__attribute__((unused))
 static int thief_reducer
 (kaapi_taskadaptive_result_t* ktr, void* varg, void* targ)
 {
@@ -277,17 +276,23 @@ static void thief_entrypoint
   /* resulting work */
   thief_work_t* const res_work = kaapi_adaptive_result_data(sc);
 
-  const unsigned long hi = to_degree(work->i, work->n);
+  unsigned long hi = to_degree(work->i, work->n);
   const unsigned long lo = to_degree(work->j, work->n);
 
-  work->res = horner_seq_hilo
-    (work->x, work->a, work->n, work->res, hi, lo);
+  for (; hi > lo; --hi)
+  {
+    const unsigned long i = to_index(hi - 1, work->n);
 
-  /* update work indices */
-  work->i = work->j;
+    res_work->res = axb_modp
+      (res_work->res, work->x, work->a[i]);
 
-  /* we are finished, update results. */
-  memcpy(res_work, work, sizeof(thief_work_t));
+    /* update work indices */
+    res_work->i = i;
+
+    const unsigned int is_preempted = kaapi_preemptpoint
+      (sc, thief_reducer, NULL, NULL, 0, NULL);
+    if (is_preempted) return ;
+  }
 }
 
 
@@ -403,6 +408,11 @@ int main(int ac, char** av)
 {
   static const unsigned long n = 1024 * 1024;
   unsigned long* const a = make_rand_polynom(n);
+
+#if 0
+  static const unsigned long n = 3;
+  const unsigned long a[] = { 3, 2, 1, 0 }; /* = 34 */
+#endif
 
   /* the point to evaluate */
   static const unsigned long x = 2;
