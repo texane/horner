@@ -82,14 +82,24 @@ inline static unsigned long to_degree
 
 
 /* xkaapi adaptive horner
-   master_work_t the parallel work.
-   thief_work_t the stolen work.
  */
 
-typedef struct master_work
+typedef struct horner_work
 {
-  /* workqueue [i, j[ */
-  kaapi_workqueue_t wq;
+  /* the range to process. since thieves
+     are not made stealable, they dont
+     need a workqueue.
+   */
+  union
+  {
+    kaapi_workqueue_t wq;
+
+    struct
+    {
+      unsigned long i, j;
+    } pair;
+
+  } range;
 
   /* polynom */
   const unsigned long* a;
@@ -98,22 +108,15 @@ typedef struct master_work
   /* the point to evaluate */
   unsigned long x;
 
-  /* result */
+  /* the result */
   unsigned long res;
 
-} master_work_t;
+} horner_work_t;
 
-typedef struct thief_work
+typedef struct horner_res
 {
-  /* [i, j[ the range to process */
+  /* processed range */
   unsigned long i, j;
-
-  /* polynom */
-  const unsigned long* a;
-  unsigned long n;
-
-  /* the point to evaluate */
-  unsigned long x;
 
   /* computed result */
   unsigned long res;
@@ -121,7 +124,7 @@ typedef struct thief_work
   /* needed to avoid reducing twice */
   unsigned long is_reduced;
 
-} thief_work_t;
+} horner_res_t;
 
 
 /* forward declarations.
@@ -142,16 +145,16 @@ static unsigned long horner_seq_hilo
    is needed.
  */
 
-static void common_reducer(master_work_t* vw, thief_work_t* tw)
+static void common_reducer(horner_work_t* vw, horner_res_t* tw)
 {
   /* how much has been processed by the thief */
-  const unsigned long n = tw->i - (unsigned long)vw->wq.end;
+  const unsigned long n = tw->i - (unsigned long)vw->range.wq.end;
 
   /* vw->res = tw->res + vw->res * x^n; */
   vw->res = axnb_modp(vw->res, vw->x, n, tw->res);
 
   /* continue the thief work */
-  kaapi_workqueue_set(&vw->wq, tw->i, tw->j);
+  kaapi_workqueue_set(&vw->range.wq, tw->i, tw->j);
 }
 
 static int thief_reducer
@@ -159,10 +162,10 @@ static int thief_reducer
 {
   /* called from the thief upon victim preemption request */
 
-  common_reducer(varg, (thief_work_t*)ktr->data);
+  common_reducer(varg, (horner_res_t*)ktr->data);
 
   /* inform the victim we did the reduction */
-  ((thief_work_t*)ktr->data)->is_reduced = 1;
+  ((horner_res_t*)ktr->data)->is_reduced = 1;
 
   return 0;
 }
@@ -172,7 +175,7 @@ static int victim_reducer
 {
   /* called from the victim to reduce a thief result */
 
-  if (((thief_work_t*)tdata)->is_reduced == 0)
+  if (((horner_res_t*)tdata)->is_reduced == 0)
   {
     /* not already reduced */
     common_reducer(varg, tdata);
@@ -189,7 +192,7 @@ static int splitter
 (kaapi_stealcontext_t* sc, int nreq, kaapi_request_t* req, void* args)
 {
   /* victim work */
-  master_work_t* const vw = (master_work_t*)args;
+  horner_work_t* const vw = (horner_work_t*)args;
 
   /* stolen range */
   kaapi_workqueue_index_t i, j;
@@ -204,7 +207,7 @@ static int splitter
  redo_steal:
   /* do not steal if range size <= PAR_GRAIN */
 #define CONFIG_PAR_GRAIN 1
-  range_size = kaapi_workqueue_size(&vw->wq);
+  range_size = kaapi_workqueue_size(&vw->range.wq);
   if (range_size <= CONFIG_PAR_GRAIN)
     return 0;
 
@@ -219,30 +222,31 @@ static int splitter
   /* perform the actual steal. if the range
      changed size in between, redo the steal
    */
-  if (kaapi_workqueue_steal(&vw->wq, &i, &j, nreq * unit_size))
+  if (kaapi_workqueue_steal(&vw->range.wq, &i, &j, nreq * unit_size))
     goto redo_steal;
 
   for (; nreq; --nreq, ++req, ++nrep, j -= unit_size)
   {
     /* for reduction, a result is needed. take care of initializing it */
     kaapi_taskadaptive_result_t* const ktr =
-      kaapi_allocate_thief_result(req, sizeof(thief_work_t), NULL);
+      kaapi_allocate_thief_result(req, sizeof(horner_res_t), NULL);
 
-    thief_work_t* const tw = kaapi_reply_init_adaptive_task
-      (sc, req, (kaapi_task_body_t)thief_entrypoint, sizeof(thief_work_t), ktr);
+    horner_work_t* const tw = kaapi_reply_init_adaptive_task
+      (sc, req, (kaapi_task_body_t)thief_entrypoint, sizeof(horner_work_t), ktr);
 
     /* initialize the thief work */
-    tw->x = vw->x;
     tw->a = vw->a;
     tw->n = vw->n;
-    tw->i = j - unit_size;
-    tw->j = j;
-    tw->res = 0.;
-    tw->is_reduced = 0;
+    tw->x = vw->x;
+    tw->range.pair.i = j - unit_size;
+    tw->range.pair.j = j;
 
     /* initialize ktr task may be preempted before entrypoint */
-    memcpy(ktr->data, tw, sizeof(thief_work_t));
-
+    ((horner_res_t*)ktr->data)->i = tw->range.pair.i;
+    ((horner_res_t*)ktr->data)->j = tw->range.pair.j;
+    ((horner_res_t*)ktr->data)->res = 0;
+    ((horner_res_t*)ktr->data)->is_reduced = 0;
+    
     /* reply head, preempt head */
     kaapi_reply_pushhead_adaptive_task(sc, req);
   }
@@ -255,12 +259,12 @@ static int splitter
  */
 
 static inline int extract_seq
-(master_work_t* w, unsigned long* i, unsigned long* j)
+(horner_work_t* w, unsigned long* i, unsigned long* j)
 {
   /* sequential size to extract */
   static const unsigned long seq_size = 1;
   const int err = kaapi_workqueue_pop
-    (&w->wq, (long*)i, (long*)j, seq_size);
+    (&w->range.wq, (long*)i, (long*)j, seq_size);
   return err ? -1 : 0;
 }
 
@@ -271,23 +275,22 @@ static void thief_entrypoint
 (void* args, kaapi_thread_t* thread, kaapi_stealcontext_t* sc)
 {
   /* input work */
-  thief_work_t* const work = (thief_work_t*)args;
+  horner_work_t* const work = (horner_work_t*)args;
 
   /* resulting work */
-  thief_work_t* const res_work = kaapi_adaptive_result_data(sc);
+  horner_res_t* const res = kaapi_adaptive_result_data(sc);
 
-  unsigned long hi = to_degree(work->i, work->n);
-  const unsigned long lo = to_degree(work->j, work->n);
+  unsigned long hi = to_degree(work->range.pair.i, work->n);
+  const unsigned long lo = to_degree(work->range.pair.j, work->n);
 
   for (; hi > lo; --hi)
   {
     const unsigned long i = to_index(hi - 1, work->n);
 
-    res_work->res = axb_modp
-      (res_work->res, work->x, work->a[i]);
+    res->res = axb_modp(res->res, work->x, work->a[i]);
 
     /* update work indices */
-    res_work->i = i;
+    res->i = i;
 
     const unsigned int is_preempted = kaapi_preemptpoint
       (sc, thief_reducer, NULL, NULL, 0, NULL);
@@ -314,14 +317,14 @@ static unsigned long horner_par
   /* sequential indices */
   unsigned long i, j;
 
-  master_work_t work;
+  horner_work_t work;
 
   /* initialize horner work */
   work.x = x;
   work.a = a;
   work.n = n;
   work.res = a[to_index(n, n)];
-  kaapi_workqueue_init(&work.wq, 0, n);
+  kaapi_workqueue_init(&work.range.wq, 0, n);
 
   /* enter adaptive section */
   sc = kaapi_task_begin_adaptive(thread, sc_flags, splitter, &work);
