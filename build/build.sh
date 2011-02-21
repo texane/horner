@@ -9,5 +9,4 @@ gcc \
     $XKAAPI_CFLAGS \
     -o horner_modp \
     ../src/main_modp.c \
-    -lm \
     $XKAAPI_LFLAGS

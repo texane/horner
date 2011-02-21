@@ -1,8 +1,9 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include <sys/types.h>
 #include "kaapi.h"
 
 
@@ -206,7 +207,7 @@ static int splitter
 
  redo_steal:
   /* do not steal if range size <= PAR_GRAIN */
-#define CONFIG_PAR_GRAIN 1
+#define CONFIG_PAR_GRAIN 128
   range_size = kaapi_workqueue_size(&vw->range.wq);
   if (range_size <= CONFIG_PAR_GRAIN)
     return 0;
@@ -409,23 +410,31 @@ static unsigned long* make_rand_polynom(unsigned long n)
 
 int main(int ac, char** av)
 {
+  /* polynom */
   static const unsigned long n = 1024 * 1024;
   unsigned long* const a = make_rand_polynom(n);
-
-#if 0
-  static const unsigned long n = 3;
-  const unsigned long a[] = { 3, 2, 1, 0 }; /* = 34 */
-#endif
 
   /* the point to evaluate */
   static const unsigned long x = 2;
 
+  /* timing */
+  uint64_t start, stop;
+  size_t iter;
+
+
   kaapi_init();
 
-  printf("%lu %lu %lu\n",
-	 naive_seq(x, a, n),
-	 horner_seq(x, a, n),
-	 horner_par(x, a, n));
+  start = kaapi_get_elapsedns();
+  for (iter = 0; iter < 100; ++iter)
+    horner_seq(x, a, n);
+  stop = kaapi_get_elapsedns();
+  printf("%lf ms.\n", (double)(stop - start) / 1E6);
+
+  start = kaapi_get_elapsedns();
+  for (iter = 0; iter < 100; ++iter)
+    horner_par(x, a, n);
+  stop = kaapi_get_elapsedns();
+  printf("%lf ms.\n", (double)(stop - start) / 1E6);
 
   kaapi_finalize();
 
