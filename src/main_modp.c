@@ -263,7 +263,7 @@ static inline int extract_seq
 (horner_work_t* w, unsigned long* i, unsigned long* j)
 {
   /* sequential size to extract */
-  static const unsigned long seq_size = 1;
+  static const unsigned long seq_size = 256;
   const int err = kaapi_workqueue_pop
     (&w->range.wq, (long*)i, (long*)j, seq_size);
   return err ? -1 : 0;
@@ -417,24 +417,26 @@ int main(int ac, char** av)
   /* the point to evaluate */
   static const unsigned long x = 2;
 
+  /* testing */
+  unsigned long sum;
+
   /* timing */
   uint64_t start, stop;
   size_t iter;
 
-
   kaapi_init();
 
   start = kaapi_get_elapsedns();
-  for (iter = 0; iter < 100; ++iter)
-    horner_seq(x, a, n);
+  for (sum = 0, iter = 0; iter < 100; ++iter)
+    sum += horner_par(x, a, n);
   stop = kaapi_get_elapsedns();
-  printf("%lf ms.\n", (double)(stop - start) / 1E6);
+  printf("%lf ms. %lu\n", (double)(stop - start) / (100 * 1E6), sum);
 
   start = kaapi_get_elapsedns();
-  for (iter = 0; iter < 100; ++iter)
-    horner_par(x, a, n);
+  for (sum = 0, iter = 0; iter < 100; ++iter)
+    sum += horner_seq(x, a, n);
   stop = kaapi_get_elapsedns();
-  printf("%lf ms.\n", (double)(stop - start) / 1E6);
+  printf("%lf ms. %lu\n", (double)(stop - start) / (100 * 1E6), sum);
 
   kaapi_finalize();
 
