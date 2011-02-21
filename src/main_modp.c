@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "kaapi.h"
 
 
 /* this example implements arbitrary degree
@@ -11,6 +12,61 @@
    for parallelization. sequential codes are
    provided for testing purposes.
  */
+
+
+/* modp arithmetics
+ */
+
+static inline unsigned long modp
+(unsigned long n)
+{ return n % 1001; }
+
+static inline unsigned long mul_modp
+(unsigned long a, unsigned long b)
+{
+  /* (a * b) mod p */
+  return modp(a * b);
+}
+
+static inline unsigned long add_modp
+(unsigned long a, unsigned long b)
+{
+  /* (a + b) mod p */
+  return modp(a + b);
+}
+
+static inline unsigned long pow_modp
+(unsigned long a, unsigned long n)
+{
+  /* (x^y) mod p */
+
+  unsigned long an;
+
+  if (n == 0) return 1;
+  else if (n == 1) return a;
+
+  /* odd */
+  if (n & 1)
+    return mul_modp(a, pow_modp(a, n - 1));
+  
+  /* even */
+  an = pow_modp(a, n / 2);
+  return mul_modp(an, an);
+}
+
+static inline unsigned long axnb_modp
+(unsigned long a, unsigned long x, unsigned long n, unsigned long b)
+{
+  /* (a * x^n + b) mod p */
+  return add_modp(mul_modp(a, pow_modp(x, n)), b);
+}
+
+static inline unsigned long axb_modp
+(unsigned long a, unsigned long x, unsigned long b)
+{
+  /* (a * x + b) mod p */
+  return add_modp(mul_modp(a, x), b);
+}
 
 
 /* degree to index translation routines
@@ -26,13 +82,6 @@ inline static unsigned long to_degree
 
 
 /* xkaapi adaptive horner
- */
-
-#if CONFIG_USE_XKAAPI
-
-#include "kaapi.h"
-
-/* work types and routines.
    master_work_t the parallel work.
    thief_work_t the stolen work.
  */
@@ -43,14 +92,14 @@ typedef struct master_work
   kaapi_workqueue_t wq;
 
   /* polynom */
-  const double* a;
+  const unsigned long* a;
   unsigned long n;
 
   /* the point to evaluate */
-  double x;
+  unsigned long x;
 
   /* result */
-  double res;
+  unsigned long res;
 
 } master_work_t;
 
@@ -60,14 +109,14 @@ typedef struct thief_work
   unsigned long i, j;
 
   /* polynom */
-  const double* a;
+  const unsigned long* a;
   unsigned long n;
 
   /* the point to evaluate */
-  double x;
+  unsigned long x;
 
   /* computed result */
-  double res;
+  unsigned long res;
 
   /* needed to avoid reducing twice */
   unsigned long is_reduced;
@@ -75,13 +124,15 @@ typedef struct thief_work
 } thief_work_t;
 
 
-/* fwd decl
+/* forward declarations.
  */
 
 static void thief_entrypoint
 (void*, kaapi_thread_t*, kaapi_stealcontext_t*);
-static double horner_seq_hilo
-(double, const double*, unsigned long, double, unsigned long, unsigned long);
+
+static unsigned long horner_seq_hilo
+(unsigned long, const unsigned long*, unsigned long,
+ unsigned long, unsigned long, unsigned long);
 
 
 /* reduction.
@@ -96,12 +147,14 @@ static void common_reducer(master_work_t* vw, thief_work_t* tw)
   /* how much has been processed by the thief */
   const unsigned long n = tw->i - (unsigned long)vw->wq.end;
 
-  vw->res = tw->res + vw->res * pow(vw->x, (double)n);
+  /* vw->res = tw->res + vw->res * x^n; */
+  vw->res = axnb_modp(vw->res, vw->x, n, tw->res);
 
   /* continue the thief work */
   kaapi_workqueue_set(&vw->wq, tw->i, tw->j);
 }
 
+__attribute__((unused))
 static int thief_reducer
 (kaapi_taskadaptive_result_t* ktr, void* varg, void* targ)
 {
@@ -241,8 +294,8 @@ static void thief_entrypoint
 /* parallel horner
  */
 
-static double horner_par
-(double x, const double* a, unsigned long n)
+static unsigned long horner_par
+(unsigned long x, const unsigned long* a, unsigned long n)
 {
   /* stealcontext flags */
   static const unsigned long sc_flags =
@@ -289,30 +342,28 @@ static double horner_par
   return work.res;
 }
 
-#endif /* CONFIG_USE_XKAAPI */
-
 
 /* sequential horner
  */
 
-static double horner_seq_hilo
+static unsigned long horner_seq_hilo
 (
- double x, const double* a, unsigned long n,
- double res, unsigned long hi, unsigned long lo
+ unsigned long x, const unsigned long* a, unsigned long n,
+ unsigned long res, unsigned long hi, unsigned long lo
 )
 {
   /* the degree in [hi, lo[ being evaluated */
   unsigned long i;
 
   for (i = hi; i > lo; --i)
-    res = res * x + a[to_index(i - 1, n)];
+    res = axb_modp(res, x, a[to_index(i - 1, n)]);
   return res;
 }
 
-static inline double horner_seq
-(double x, const double* a, unsigned long n)
+static inline unsigned long horner_seq
+(unsigned long x, const unsigned long* a, unsigned long n)
 {
-  double res = a[to_index(n, n)];
+  unsigned long res = a[to_index(n, n)];
   return horner_seq_hilo(x, a, n, res, n, 0);
 }
 
@@ -320,13 +371,15 @@ static inline double horner_seq
 /* sequential naive implementation
  */
 
-static double naive_seq
-(double x, const double* a, unsigned long n)
+static unsigned long naive_seq
+(unsigned long x, const unsigned long* a, unsigned long n)
 {
-  double res;
+  unsigned long res;
   unsigned long i;
-  for (res = 0., i = 0; i <= n; ++i)
-    res += pow(x, (double)i) * a[to_index(i, n)];
+
+  for (res = 0, i = 0; i <= n; ++i)
+    res = axnb_modp(a[to_index(i, n)], x, i, res);
+
   return res;
 }
 
@@ -334,14 +387,11 @@ static double naive_seq
 /* generate a random polynom of degree n
  */
 
-static double* make_rand_polynom(unsigned long n)
+static unsigned long* make_rand_polynom(unsigned long n)
 {
-  double* const a = malloc((n + 1) * sizeof(double));
-
+  unsigned long* const a = malloc((n + 1) * sizeof(unsigned long));
   size_t i;
-  for (i = 0; i <= n; ++i)
-    a[i] = (rand() % 10) / 1000.f;
-  
+  for (i = 0; i <= n; ++i) a[i] = modp(rand());
   return a;
 }
 
@@ -351,24 +401,20 @@ static double* make_rand_polynom(unsigned long n)
 
 int main(int ac, char** av)
 {
-  static const unsigned long n = 1024 * 32;
-  double* const a = make_rand_polynom(n);
+  static const unsigned long n = 1024 * 1024;
+  unsigned long* const a = make_rand_polynom(n);
 
   /* the point to evaluate */
-  static const double x = 2.;
+  static const unsigned long x = 2;
 
-#if CONFIG_USE_XKAAPI
   kaapi_init();
-#endif
 
-  printf("%lf %lf %lf\n",
+  printf("%lu %lu %lu\n",
 	 naive_seq(x, a, n),
 	 horner_seq(x, a, n),
 	 horner_par(x, a, n));
 
-#if CONFIG_USE_XKAAPI
   kaapi_finalize();
-#endif
 
   free(a);
 
