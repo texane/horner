@@ -1,0 +1,7 @@
+. anticipation de la reduction + steal disable
+ -> resortir de l interface les fonctions de
+    la macro kaapi_preemptpoint
+
+. interface c++ pour le splitter
+ . partir du principe qu on travaille a la tbb
+ . splitter::split(i, j)
