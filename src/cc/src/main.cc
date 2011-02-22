@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include "modp.hh"
 #include "kaLinearWork.hh"
 
@@ -101,8 +103,6 @@ public:
 
 // main
 
-#include <stdlib.h>
-
 static unsigned long* make_rand_polynom(unsigned long n)
 {
   unsigned long* const a = (unsigned long*)malloc
@@ -122,9 +122,21 @@ int main(int ac, char** av)
 
   ka::linearWork::toRemove::initialize();
 
-  hornerResult res(a, n);
-  hornerWork work(x, a, n);
-  ka::linearWork::execute(work, res);
+  volatile unsigned long sum_par = 0;
+
+  uint64_t start = kaapi_get_elapsedns();
+
+  for (unsigned int iter = 0; iter < 100; ++iter)
+  {
+    hornerWork work(x, a, n);
+    hornerResult res(a, n);
+    ka::linearWork::execute(work, res);
+    sum_par += res._res;
+  }
+
+  uint64_t stop = kaapi_get_elapsedns();
+  double par_time = (double)(stop - start) / (100 * 1E6);
+  printf("%u %lf\n", kaapi_getconcurrency(), par_time);
 
   ka::linearWork::toRemove::finalize();
 
