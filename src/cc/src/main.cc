@@ -1,3 +1,8 @@
+// todo
+// goal: removing inheritance
+// remove result, use neutral element instead
+// reduce(result_type&, range_type processed_range, range_type remaining_range)
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
