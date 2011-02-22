@@ -89,13 +89,8 @@ public:
     // lhs += rhs with rhs the preempted work
 
     ka::linearWork::range processed, remaining;
-
     getPreemptedRanges(rhs, processed, remaining);
-
     lhs._res = axnb_modp(lhs._res, _x, processed.size(), rhs._res);
-
-    // continue the work
-    setPreemptedRange(remaining);
   }
 
 };
@@ -136,7 +131,7 @@ int main(int ac, char** av)
 
   uint64_t stop = kaapi_get_elapsedns();
   double par_time = (double)(stop - start) / (100 * 1E6);
-  printf("%u %lf\n", kaapi_getconcurrency(), par_time);
+  printf("%u %lf %lu\n", kaapi_getconcurrency(), par_time, sum_par);
 
   ka::linearWork::toRemove::finalize();
 

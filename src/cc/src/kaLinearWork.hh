@@ -42,6 +42,16 @@ public:
     : _range(i, j), _is_reduced(false) {}
 };
 
+class voidResult : public baseResult
+{
+public:
+
+  voidResult() {}
+
+  template<typename work_type>
+  void initialize(const work_type&) {}
+};
+
 
 // problem works have to inherit from that
 class baseWork
@@ -68,10 +78,6 @@ public:
     remaining = range(res._range.begin(), res._range.end());
   }
 
-  void setPreemptedRange(range& r)
-  {
-    kaapi_workqueue_set(&_wq, r.begin(), r.end());
-  }
 }; // baseWork
 
 
@@ -304,6 +310,12 @@ static void execute(work_type& work, result_type& res)
   kaapi_task_end_adaptive(sc);
 
 } // execute
+
+
+// no result execute version
+template<typename work_type>
+static void execute(work_type& work)
+{ voidResult res; execute(work, res); }
 
 
 namespace toRemove {
