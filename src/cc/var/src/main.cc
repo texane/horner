@@ -17,7 +17,10 @@ public:
   varResult() : _sum_x(0.), _sum_xx(0.) { }
 
   void initialize(const varWork&)
-  { _res = 0.; }
+  {
+    _sum_x = 0.;
+    _sum_xx = 0.;
+  }
 };
 
 
@@ -33,7 +36,9 @@ public:
 
   const double* _x;
 
-  varWork(const double* x) : _x(x) {}
+  varWork(const double* x, size_t n) :
+    ka::linearWork::baseWork(0, (ka::linearWork::range::index_type)n), _x(x)
+  {}
 
   void initialize(const varWork& w)
   {
@@ -43,10 +48,12 @@ public:
 
   void execute(varResult& res, const ka::linearWork::range& r)
   {
+    typedef ka::linearWork::range::index_type index_type;
+
     double sum_x = 0.;
     double sum_xx = 0.;
 
-    for (range::index_type i = r.begin(); i < r.end(); ++i)
+    for (index_type i = r.begin(); i < r.end(); ++i)
     {
       const double x = _x[i];
       sum_x += x;
@@ -57,8 +64,7 @@ public:
     res._sum_xx += sum_xx;
   }
 
-  void reduce
-  (ka::linearWork::varResult& lhs, const ka::linearWork::varResult& rhs)
+  void reduce(varResult& lhs, const varResult& rhs)
   {
     lhs._sum_x += rhs._sum_x;
     lhs._sum_xx += rhs._sum_xx;
@@ -68,13 +74,16 @@ public:
 
 
 static double var
-(const double* x, size_t n, bool)
+(const double* x, size_t _n, bool)
 {
-  varWork work(x, n);
+  const double n = (double)_n;
+
+  varWork work(x, _n);
   varResult res;
   ka::linearWork::execute(work, res);
-  const double ave = res._sum_x / (double)n;
-  return res._sum_xx + (double)n * (ave * ave) - 2. * ave * res._sum_x;
+
+  const double ave = res._sum_x / n;
+  return (res._sum_xx + ave * (n * ave - 2 * res._sum_x)) / n;
 }
 
 
@@ -87,8 +96,11 @@ static double mean(const double* x, size_t n)
   return sum / (double)n;
 }
 
+__attribute__((unused))
 static double var(const double* x, size_t n)
 {
+  // sum( (xi - ave)^2 )
+
   const double ave = mean(x, n);
 
   double sum = 0.;
@@ -104,11 +116,26 @@ static double var(const double* x, size_t n)
 
 int main(int ac, char** av)
 {
-  double x[] = { 0, 1, 2, 3, 4, 5 };
-  const size_t n = sizeof(x) / sizeof(x[0]);
-
   ka::linearWork::toRemove::initialize();
-  printf("%lf %lf\n", var(x, n), var(x, n, true));
+
+  // generate a random vector
+  const size_t n = 1024 * 1024;
+  double* const x = (double*)malloc(n * sizeof(double));
+  for (size_t i = 0; i < n; ++i) x[i] = rand() % 100;
+
+  uint64_t start = kaapi_get_elapsedns();
+
+  volatile double dont_optimize;
+  for (unsigned int iter = 0; iter < 1000; ++iter)
+    dont_optimize = var(x, n);
+
+  uint64_t stop = kaapi_get_elapsedns();
+  double par_time = (double)(stop - start) / (1000 * 1E6);
+
+  printf("%lf\n", par_time);
+
+  free(x);
+
   ka::linearWork::toRemove::finalize();
 
   return 0;
