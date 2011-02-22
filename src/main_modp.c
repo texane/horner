@@ -119,9 +119,6 @@ typedef struct horner_res
 /* forward declarations.
  */
 
-static volatile unsigned long processed_works[32] = {0, };
-static volatile unsigned long total_works[32] = {0, };
-
 static void thief_entrypoint
 (void*, kaapi_thread_t*, kaapi_stealcontext_t*);
 
@@ -271,8 +268,6 @@ static void thief_entrypoint
   /* input work */
   horner_work_t* const work = (horner_work_t*)args;
 
-  total_works[kaapi_get_self_kid()] += kaapi_workqueue_size(&work->wq);
-
   /* resulting work */
   horner_res_t* const res = kaapi_adaptive_result_data(sc);
 
@@ -281,12 +276,10 @@ static void thief_entrypoint
   unsigned int is_preempted;
 
   /* set the splitter for this task */
-  /* kaapi_steal_setsplitter(sc, splitter, work); */
+  kaapi_steal_setsplitter(sc, splitter, work);
 
   while (extract_seq(work, &i, &j) != -1)
   {
-    processed_works[kaapi_get_self_kid()] += j - i;
-
     const unsigned long hi = to_degree(i, work->n);
     const unsigned long lo = to_degree(j, work->n);
 
@@ -336,8 +329,6 @@ static unsigned long horner_par
 
   horner_work_t work;
 
-  total_works[0] += n;
-
   /* initialize horner work */
   work.x = x;
   work.a = a;
@@ -354,8 +345,6 @@ static unsigned long horner_par
     const unsigned long hi = to_degree(i, n);
     const unsigned long lo = to_degree(j, n);
     work.res = horner_seq_hilo(x, a, n, work.res, hi, lo);
-
-    processed_works[0] += j - i;
   }
 
   /* preempt and reduce thieves */
@@ -455,11 +444,7 @@ int main(int ac, char** av)
 
   start = kaapi_get_elapsedns();
   for (sum_par = 0, iter = 0; iter < 100; ++iter)
-    {
-      memset((void*)processed_works, 0, sizeof(processed_works));
-      memset((void*)total_works, 0, sizeof(total_works));
-      sum_par += horner_par(x, a, n);
-    }
+    sum_par += horner_par(x, a, n);
   stop = kaapi_get_elapsedns();
   par_time = (double)(stop - start) / (1E6 * 100.);
 
@@ -470,11 +455,6 @@ int main(int ac, char** av)
   seq_time = (double)(stop - start) / (1E6 * 100.);
 
   printf("%u %lf %lf %lu == %lu\n", kaapi_getconcurrency(), seq_time / par_time, par_time, sum_seq, sum_par);
-
-  size_t i;
-  for (i = 0; i < kaapi_getconcurrency(); ++i)
-    printf("[% 2lu] % 8lu % 8lu\n", i, processed_works[i], total_works[i]);
-  printf("\n");
 
   kaapi_finalize();
 
