@@ -30,6 +30,8 @@ class varWork : public ka::linearWork::baseWork
 
 public:
 
+  typedef ka::linearWork::range range_type;
+
   static const bool is_reducable = true;
   static const unsigned int seq_grain = 256;
   static const unsigned int par_grain = 256;
@@ -37,7 +39,7 @@ public:
   const double* _x;
 
   varWork(const double* x, size_t n) :
-    ka::linearWork::baseWork(0, (ka::linearWork::range::index_type)n), _x(x)
+    ka::linearWork::baseWork(0, (range_type::index_type)n), _x(x)
   {}
 
   void initialize(const varWork& w)
@@ -46,14 +48,12 @@ public:
     _x = w._x;
   }
 
-  void execute(varResult& res, const ka::linearWork::range& r)
+  void execute(varResult& res, const range_type& r)
   {
-    typedef ka::linearWork::range::index_type index_type;
-
     double sum_x = 0.;
     double sum_xx = 0.;
 
-    for (index_type i = r.begin(); i < r.end(); ++i)
+    for (range_type::index_type i = r.begin(); i < r.end(); ++i)
     {
       const double x = _x[i];
       sum_x += x;
@@ -64,7 +64,8 @@ public:
     res._sum_xx += sum_xx;
   }
 
-  void reduce(varResult& lhs, const varResult& rhs)
+  void reduce
+  (varResult& lhs, const varResult& rhs, const range_type&)
   {
     lhs._sum_x += rhs._sum_x;
     lhs._sum_xx += rhs._sum_xx;

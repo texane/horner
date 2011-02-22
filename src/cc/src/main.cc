@@ -44,6 +44,8 @@ class hornerWork : public ka::linearWork::baseWork
 {
 public:
 
+  typedef ka::linearWork::range range_type;
+
   // problem specific data
 
   unsigned long _x;
@@ -73,7 +75,7 @@ public:
     _n = w._n;
   }
 
-  void execute(hornerResult& res, const ka::linearWork::range& r)
+  void execute(hornerResult& res, const range_type& r)
   {
     // map range to actual work and process
 
@@ -89,12 +91,9 @@ public:
   }
 
   void reduce
-  (hornerResult& lhs, const hornerResult& rhs)
+  (hornerResult& lhs, const hornerResult& rhs, const range_type& processed)
   {
     // lhs += rhs with rhs the preempted work
-
-    ka::linearWork::range processed, remaining;
-    getPreemptedRanges(rhs, processed, remaining);
     lhs._res = axnb_modp(lhs._res, _x, processed.size(), rhs._res);
   }
 

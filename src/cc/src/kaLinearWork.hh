@@ -70,14 +70,6 @@ public:
   baseWork(range::index_type i, range::index_type j)
   { kaapi_workqueue_init(&_wq, i, j); }
 
-  template<typename result_type>
-  void getPreemptedRanges
-  (result_type& res, range& processed, range& remaining)
-  {
-    processed = range((range::index_type)_wq.end, res._range.begin());
-    remaining = range(res._range.begin(), res._range.end());
-  }
-
 }; // baseWork
 
 
@@ -90,8 +82,10 @@ static void common_reducer
   // vr the victim result
   // tr the thief result
 
+  range processed((range::index_type)vw->_wq.end, tr->_range.begin());
+
   // reduce the thief result
-  vw->reduce(*vr, *tr);
+  vw->reduce(*vr, *tr, processed);
 
   // continue the thief work
   kaapi_workqueue_set(&vw->_wq, tr->_range._i, tr->_range._j);
