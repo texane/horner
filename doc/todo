@@ -5,3 +5,6 @@
 . interface c++ pour le splitter
  . partir du principe qu on travaille a la tbb
  . splitter::split(i, j)
+
+. monitor des compteurs papi
+  const int events[] = { PAPI_MEM_SCY, PAPI_MEM_RCY, PAPI_MEM_WCY };

@@ -119,6 +119,9 @@ typedef struct horner_res
 /* forward declarations.
  */
 
+static volatile unsigned long processed_works[32] = {0, };
+static volatile unsigned long total_works[32] = {0, };
+
 static void thief_entrypoint
 (void*, kaapi_thread_t*, kaapi_stealcontext_t*);
 
@@ -137,8 +140,7 @@ static unsigned long horner_seq_hilo
 static void common_reducer(horner_work_t* vw, horner_res_t* tw)
 {
   /* how much has been processed by the thief */
-  const unsigned long n =
-    tw->i - (unsigned long)vw->wq.end;
+  const unsigned long n = tw->i - (unsigned long)vw->wq.end;
 
   /* vw->res = tw->res + vw->res * x^n; */
   vw->res = axnb_modp(vw->res, vw->x, n, tw->res);
@@ -196,7 +198,7 @@ static int splitter
 
  redo_steal:
   /* do not steal if range size <= PAR_GRAIN */
-#define CONFIG_PAR_GRAIN 128
+#define CONFIG_PAR_GRAIN 256
   range_size = kaapi_workqueue_size(&vw->wq);
   if (range_size <= CONFIG_PAR_GRAIN)
     return 0;
@@ -251,7 +253,7 @@ static inline int extract_seq
 (horner_work_t* w, unsigned long* i, unsigned long* j)
 {
   /* sequential size to extract */
-  static const unsigned long seq_size = 128;
+  static const unsigned long seq_size = 512;
   const int err = kaapi_workqueue_pop
     (&w->wq, (long*)i, (long*)j, seq_size);
   return err ? -1 : 0;
@@ -269,6 +271,8 @@ static void thief_entrypoint
   /* input work */
   horner_work_t* const work = (horner_work_t*)args;
 
+  total_works[kaapi_get_self_kid()] += kaapi_workqueue_size(&work->wq);
+
   /* resulting work */
   horner_res_t* const res = kaapi_adaptive_result_data(sc);
 
@@ -277,10 +281,12 @@ static void thief_entrypoint
   unsigned int is_preempted;
 
   /* set the splitter for this task */
-  kaapi_steal_setsplitter(sc, splitter, work);
+  /* kaapi_steal_setsplitter(sc, splitter, work); */
 
   while (extract_seq(work, &i, &j) != -1)
   {
+    processed_works[kaapi_get_self_kid()] += j - i;
+
     const unsigned long hi = to_degree(i, work->n);
     const unsigned long lo = to_degree(j, work->n);
 
@@ -330,6 +336,8 @@ static unsigned long horner_par
 
   horner_work_t work;
 
+  total_works[0] += n;
+
   /* initialize horner work */
   work.x = x;
   work.a = a;
@@ -346,12 +354,15 @@ static unsigned long horner_par
     const unsigned long hi = to_degree(i, n);
     const unsigned long lo = to_degree(j, n);
     work.res = horner_seq_hilo(x, a, n, work.res, hi, lo);
+
+    processed_works[0] += j - i;
   }
 
   /* preempt and reduce thieves */
   if ((ktr = kaapi_get_thief_head(sc)) != NULL)
   {
-    kaapi_preempt_thief(sc, ktr, (void*)&work, victim_reducer, (void*)&work);
+    kaapi_preempt_thief
+      (sc, ktr, (void*)&work, victim_reducer, (void*)&work);
     goto continue_work;
   }
 
@@ -372,11 +383,15 @@ static unsigned long horner_seq_hilo
 )
 {
   /* the degree in [hi, lo[ being evaluated */
-  unsigned long i;
 
-  for (i = hi; i > lo; --i)
-    res = axb_modp(res, x, a[to_index(i - 1, n)]);
-  return res;
+  register unsigned long local_res = res;
+
+  register unsigned long i;
+  register unsigned long j = to_index(hi - 1, n);
+
+  for (i = hi; i > lo; --i, ++j)
+    local_res = axb_modp(local_res, x, a[j]);
+  return local_res;
 }
 
 static inline unsigned long horner_seq
@@ -428,7 +443,8 @@ int main(int ac, char** av)
   static const unsigned long x = 2;
 
   /* testing */
-  volatile unsigned long sum;
+  volatile unsigned long sum_seq;
+  volatile unsigned long sum_par;
 
   /* timing */
   uint64_t start, stop;
@@ -438,18 +454,27 @@ int main(int ac, char** av)
   kaapi_init();
 
   start = kaapi_get_elapsedns();
-  for (sum = 0, iter = 0; iter < 100; ++iter)
-    sum += horner_par(x, a, n);
+  for (sum_par = 0, iter = 0; iter < 100; ++iter)
+    {
+      memset((void*)processed_works, 0, sizeof(processed_works));
+      memset((void*)total_works, 0, sizeof(total_works));
+      sum_par += horner_par(x, a, n);
+    }
   stop = kaapi_get_elapsedns();
   par_time = (double)(stop - start) / (1E6 * 100.);
 
   start = kaapi_get_elapsedns();
-  for (sum = 0, iter = 0; iter < 100; ++iter)
-    sum += horner_seq(x, a, n);
+  for (sum_seq = 0, iter = 0; iter < 100; ++iter)
+    sum_seq += horner_seq(x, a, n);
   stop = kaapi_get_elapsedns();
   seq_time = (double)(stop - start) / (1E6 * 100.);
 
-  printf("%u %lf\n", kaapi_getconcurrency(), seq_time / par_time);
+  printf("%u %lf %lf %lu == %lu\n", kaapi_getconcurrency(), seq_time / par_time, par_time, sum_seq, sum_par);
+
+  size_t i;
+  for (i = 0; i < kaapi_getconcurrency(); ++i)
+    printf("[% 2lu] % 8lu % 8lu\n", i, processed_works[i], total_works[i]);
+  printf("\n");
 
   kaapi_finalize();
 

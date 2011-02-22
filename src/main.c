@@ -151,7 +151,7 @@ static int splitter
 
  redo_steal:
   /* do not steal if range size <= PAR_GRAIN */
-#define CONFIG_PAR_GRAIN 1
+#define CONFIG_PAR_GRAIN 256
   range_size = kaapi_workqueue_size(&vw->wq);
   if (range_size <= CONFIG_PAR_GRAIN)
     return 0;
@@ -206,7 +206,7 @@ static inline int extract_seq
 (master_work_t* w, unsigned long* i, unsigned long* j)
 {
   /* sequential size to extract */
-  static const unsigned long seq_size = 1;
+  static const unsigned long seq_size = 128;
   const int err = kaapi_workqueue_pop
     (&w->wq, (long*)i, (long*)j, seq_size);
   return err ? -1 : 0;

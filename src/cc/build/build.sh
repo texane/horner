@@ -4,9 +4,10 @@ XKAAPI_DIR="$HOME/install/xkaapi_master"
 XKAAPI_CFLAGS="-I$XKAAPI_DIR/include"
 XKAAPI_LFLAGS="-L$XKAAPI_DIR/lib -lkaapi -lpthread"
 
-gcc \
-    -Wall -O2 -march=native \
+g++ \
+    -Wall -O3 -march=native \
     $XKAAPI_CFLAGS \
-    -o horner_modp \
-    ../src/main_modp.c \
+    -I. \
+    -o horner \
+    ../src/main.cc \
     $XKAAPI_LFLAGS
